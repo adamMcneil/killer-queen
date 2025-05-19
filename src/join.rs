@@ -4,11 +4,14 @@ use leafwing_input_manager::action_state::ActionState;
 
 use serde::Deserialize;
 use serde::Serialize;
+use tungstenite::WebSocket;
 
+use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::player;
 use crate::{
     berries::{Berry, BerryBundle},
     gates::{GateBundle, GATE_HEIGHT, GATE_NEUTRAL_IDX},
@@ -27,10 +30,14 @@ pub struct JoinedGamepads(pub HashSet<Gamepad>);
 #[derive(Resource, Default)]
 pub struct JoinedWebSockets(pub HashSet<i32>);
 
+#[derive(Resource, Default)]
+pub struct WebSocketControllers(pub HashMap<i32, ControllerState>);
+
 impl Plugin for JoinPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<JoinedGamepads>()
             .insert_resource(JoinedWebSockets::default())
+            .insert_resource(WebSocketControllers::default())
             .add_systems(
                 Update,
                 (
@@ -179,10 +186,24 @@ pub struct ControllerState {
 }
 
 fn join_from_websocket(
+    mut commands: Commands,
     mut joined_websockets: ResMut<JoinedWebSockets>,
+    mut web_socket_controllers: ResMut<WebSocketControllers>,
     receiver: Res<BevyReceiver>,
+    action_query: Query<(
+        Entity,
+        &ActionState<Action>,
+        &Player,
+        Has<Berry>,
+        &Transform,
+        Option<&RidingOnShip>,
+        &Team,
+        Has<Queen>,
+    )>,
     queens: Query<&Team, With<Queen>>,
     mut ev_spawn_players: EventWriter<SpawnPlayerEvent>,
+    asset_server: Res<AssetServer>,
+    mut join_gates: Query<(Entity, &Team, &mut TextureAtlas), With<JoinGate>>,
 ) {
     match receiver.0.lock() {
         Ok(receiver) => {
@@ -190,7 +211,46 @@ fn join_from_websocket(
                 let player_id = controller_update.player.clone();
                 if joined_websockets.0.contains(&player_id) {
                     if controller_update.is_leaving {
-                        // can you finish this part for me you end to remove the player
+                        for (
+                            player_entity,
+                            _,
+                            player,
+                            killed_has_berry,
+                            killed_player_transform,
+                            maybe_riding_on_ship,
+                            team,
+                            is_queen,
+                        ) in action_query.iter()
+                        {
+                            match player.player_controller {
+                                WebSocket => {
+                                    remove_player(
+                                        &mut commands,
+                                        player_entity,
+                                        killed_has_berry,
+                                        killed_player_transform,
+                                        &asset_server,
+                                        maybe_riding_on_ship,
+                                    );
+                                    if is_queen {
+                                        for (join_gate, join_gate_team, mut gate_sprite) in
+                                            join_gates.iter_mut()
+                                        {
+                                            if join_gate_team == team {
+                                                commands.entity(join_gate).remove::<Team>();
+                                                gate_sprite.index = GATE_NEUTRAL_IDX;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        joined_websockets.0.remove(&player_id);
+                    } else {
+                        web_socket_controllers
+                            .0
+                            .insert(player_id, controller_update);
                     }
                 } else {
                     println!("player joining");
