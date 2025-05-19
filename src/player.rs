@@ -5,9 +5,13 @@ use bevy_rapier2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::{
-    animation::Animation, berries::Berry, join::remove_player, settings::GameSettings,
-    ship::RidingOnShip, GameState, WinCondition, WinEvent, WINDOW_BOTTOM_Y, WINDOW_HEIGHT,
-    WINDOW_LEFT_X, WINDOW_RIGHT_X, WINDOW_TOP_Y, WINDOW_WIDTH,
+    animation::Animation,
+    berries::Berry,
+    join::{remove_player, ControllerState},
+    settings::GameSettings,
+    ship::RidingOnShip,
+    GameState, WinCondition, WinEvent, WINDOW_BOTTOM_Y, WINDOW_HEIGHT, WINDOW_LEFT_X,
+    WINDOW_RIGHT_X, WINDOW_TOP_Y, WINDOW_WIDTH,
 };
 
 const PLAYER_MAX_VELOCITY_X: f32 = 600.0;
@@ -160,6 +164,7 @@ pub struct QueenDeaths {
 pub enum PlayerController {
     Gamepad(Gamepad),
     Midi { octave: u8 },
+    WebSocket(ControllerState),
 }
 
 #[derive(Component)]

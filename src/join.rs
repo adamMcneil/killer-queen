@@ -2,6 +2,13 @@ use bevy::{prelude::*, utils::HashSet};
 use bevy_rapier2d::dynamics::RigidBody;
 use leafwing_input_manager::action_state::ActionState;
 
+use serde::Deserialize;
+use serde::Serialize;
+
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use crate::{
     berries::{Berry, BerryBundle},
     gates::{GateBundle, GATE_HEIGHT, GATE_NEUTRAL_IDX},
@@ -17,14 +24,19 @@ pub struct JoinPlugin;
 #[derive(Resource, Default)]
 pub struct JoinedGamepads(pub HashSet<Gamepad>);
 
+#[derive(Resource, Default)]
+pub struct JoinedWebSockets(pub HashSet<i32>);
+
 impl Plugin for JoinPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<JoinedGamepads>()
+            .insert_resource(JoinedWebSockets::default())
             .add_systems(
                 Update,
                 (
                     (check_for_start_game, disconnect).run_if(in_state(GameState::Join)),
                     join,
+                    join_from_websocket,
                 ),
             )
             .add_systems(OnEnter(GameState::Join), setup_join)
@@ -151,6 +163,57 @@ fn join(
                 joined_gamepads.0.insert(gamepad);
             }
         }
+    }
+}
+
+#[derive(Resource)]
+pub struct BevyReceiver(pub Arc<Mutex<Receiver<ControllerState>>>);
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct ControllerState {
+    player: i32,
+    is_purple: bool,
+    is_leaving: bool,
+    x_movement: f32,
+    jump: bool,
+}
+
+fn join_from_websocket(
+    mut joined_websockets: ResMut<JoinedWebSockets>,
+    receiver: Res<BevyReceiver>,
+    queens: Query<&Team, With<Queen>>,
+    mut ev_spawn_players: EventWriter<SpawnPlayerEvent>,
+) {
+    match receiver.0.lock() {
+        Ok(receiver) => {
+            while let Ok(controller_update) = receiver.try_recv() {
+                let player_id = controller_update.player.clone();
+                if joined_websockets.0.contains(&player_id) {
+                    if controller_update.is_leaving {
+                        // can you finish this part for me you end to remove the player
+                    }
+                } else {
+                    println!("player joining");
+                    let team = if controller_update.is_purple {
+                        Team::Purple
+                    } else {
+                        Team::Yellow
+                    };
+                    let is_queen = !queens.iter().any(|&queen_team| queen_team == team);
+                    ev_spawn_players.send(SpawnPlayerEvent {
+                        team,
+                        is_queen,
+                        player_controller: PlayerController::WebSocket(controller_update),
+                        delay: 0.0,
+                        start_invincible: false,
+                    });
+                    // Insert the created player and its gamepad to the hashmap of joined players
+                    // Since uniqueness was already checked above, we can insert here unchecked
+                    joined_websockets.0.insert(player_id);
+                }
+            }
+        }
+        Err(_) => (),
     }
 }
 

@@ -15,6 +15,7 @@ use animation::AnimationPlugin;
 use berries::BerriesPlugin;
 use bevy::{prelude::*, render::camera::ScalingMode, window::WindowResolution};
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
+use join::{BevyReceiver, ControllerState};
 // use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::prelude::*;
 use gates::GatePlugin;
@@ -27,6 +28,15 @@ use player::{PlayerPlugin, Team};
 use settings::SettingsPlugin;
 use ship::ShipPlugin;
 
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread::{self, JoinHandle};
+
+use std::net::TcpListener;
+use std::thread::spawn;
+use tungstenite::accept;
+
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1016.0;
 
@@ -38,8 +48,11 @@ pub const WINDOW_RIGHT_X: f32 = WINDOW_WIDTH / 2.0;
 const COLOR_BACKGROUND: Color = Color::rgb(0.298, 0.737, 0.937);
 
 fn main() {
+    let (controller_server, receiver) = setup_controller_websocket();
+    let bevy_receiver = BevyReceiver(Arc::new(Mutex::new(receiver)));
     App::new()
         .insert_resource(ClearColor(COLOR_BACKGROUND))
+        .insert_resource(bevy_receiver)
         .init_state::<GameState>()
         .add_plugins(
             DefaultPlugins
@@ -77,6 +90,34 @@ fn main() {
         .add_systems(Update, (set_win_text, start_next_game))
         .add_systems(OnExit(GameState::GameOver), remove_win_text)
         .run();
+
+    controller_server
+        .join()
+        .expect("Web socket thread panicked");
+}
+
+fn setup_controller_websocket() -> (JoinHandle<()>, Receiver<ControllerState>) {
+    let (transmitter, receiver): (Sender<ControllerState>, Receiver<ControllerState>) =
+        mpsc::channel();
+
+    let web_socket_thread = thread::spawn(move || {
+        let server = TcpListener::bind("10.0.0.184:8000").unwrap();
+        println!("Server is listing");
+        for stream in server.incoming() {
+            let connection_transmitter = transmitter.clone();
+            spawn(move || {
+                let mut websocket = accept(stream.unwrap()).unwrap();
+                println!("Connection successful");
+                loop {
+                    let msg = websocket.read().unwrap();
+                    let rocket_message: ControllerState =
+                        serde_json::from_str(&msg.to_string()).unwrap();
+                    let _ = connection_transmitter.send(rocket_message);
+                }
+            });
+        }
+    });
+    return (web_socket_thread, receiver);
 }
 
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
