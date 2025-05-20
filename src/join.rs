@@ -1,7 +1,11 @@
 use bevy::{prelude::*, utils::HashSet};
 use bevy_rapier2d::dynamics::RigidBody;
+use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::action_state::ActionState;
+use leafwing_input_manager::axislike::DualAxisData;
 
+use leafwing_input_manager::buttonlike::ButtonState;
+use leafwing_input_manager::timing::Timing;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::mpsc::Receiver;
@@ -175,6 +179,7 @@ pub struct ControllerState {
     pub is_leaving: bool,
     pub x_movement: f32,
     pub jump: bool,
+    pub diving: bool,
 }
 
 fn join_from_websocket(
@@ -241,6 +246,23 @@ fn join_from_websocket(
                             if controller_update.jump {
                                 action_state.press(&Action::Jump);
                             }
+                            let y = if controller_update.diving { -1.0 } else { 0.0 };
+                            println!("{}", controller_update.x_movement);
+                            println!("{}", controller_update.diving);
+                            let digital_action_data = ActionData {
+                                state: ButtonState::Pressed,
+                                value: controller_update.x_movement,
+                                axis_pair: Some(DualAxisData::new(controller_update.x_movement, y)),
+                                consumed: false,
+                                timing: Timing::default(),
+                            };
+
+                            // Set movement data
+                            action_state.set_action_data(Action::Move, digital_action_data);
+                            println!("{:?}", action_state);
+                            // if controller_update.x_movement > 0.0 {
+                            //     action_state.press(&Action::Move);
+                            // }
                         }
                     }
                 } else {
