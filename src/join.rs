@@ -2,7 +2,6 @@ use bevy::{prelude::*, utils::HashSet};
 use bevy_rapier2d::dynamics::RigidBody;
 use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::action_state::ActionState;
-use leafwing_input_manager::axislike::DualAxisData;
 
 use leafwing_input_manager::buttonlike::ButtonState;
 use leafwing_input_manager::timing::Timing;
@@ -217,52 +216,51 @@ fn join_from_websocket(
                         is_queen,
                     ) in action_query.iter_mut()
                     {
-                        if controller_update.is_leaving {
-                            match player.player_controller {
-                                PlayerController::WebSocket { .. } => {
-                                    remove_player(
-                                        &mut commands,
-                                        player_entity,
-                                        killed_has_berry,
-                                        killed_player_transform,
-                                        &asset_server,
-                                        maybe_riding_on_ship,
-                                    );
-                                    if is_queen {
-                                        for (join_gate, join_gate_team, mut gate_sprite) in
-                                            join_gates.iter_mut()
-                                        {
-                                            if join_gate_team == team {
-                                                commands.entity(join_gate).remove::<Team>();
-                                                gate_sprite.index = GATE_NEUTRAL_IDX;
+                        match player.player_controller {
+                            PlayerController::WebSocket { id } => {
+                                if id == player_id {
+                                    if controller_update.is_leaving {
+                                        remove_player(
+                                            &mut commands,
+                                            player_entity,
+                                            killed_has_berry,
+                                            killed_player_transform,
+                                            &asset_server,
+                                            maybe_riding_on_ship,
+                                        );
+                                        if is_queen {
+                                            for (join_gate, join_gate_team, mut gate_sprite) in
+                                                join_gates.iter_mut()
+                                            {
+                                                if join_gate_team == team {
+                                                    commands.entity(join_gate).remove::<Team>();
+                                                    gate_sprite.index = GATE_NEUTRAL_IDX;
+                                                }
                                             }
                                         }
+                                        joined_websockets.0.remove(&player_id);
+                                    } else {
+                                        if controller_update.jump {
+                                            action_state.press(&Action::Jump);
+                                        }
+                                        if controller_update.diving {
+                                            action_state.press(&Action::Dive)
+                                        }
+                                        let digital_action_data = ActionData {
+                                            state: ButtonState::Pressed,
+                                            value: controller_update.x_movement,
+                                            axis_pair: None,
+                                            consumed: false,
+                                            timing: Timing::default(),
+                                        };
+
+                                        action_state
+                                            .set_action_data(Action::Move, digital_action_data);
+                                        // println!("{:?}", action_state);
                                     }
                                 }
-                                _ => {}
                             }
-                            joined_websockets.0.remove(&player_id);
-                        } else {
-                            if controller_update.jump {
-                                action_state.press(&Action::Jump);
-                            }
-                            let y = if controller_update.diving { -1.0 } else { 0.0 };
-                            println!("{}", controller_update.x_movement);
-                            println!("{}", controller_update.diving);
-                            let digital_action_data = ActionData {
-                                state: ButtonState::Pressed,
-                                value: controller_update.x_movement,
-                                axis_pair: Some(DualAxisData::new(controller_update.x_movement, y)),
-                                consumed: false,
-                                timing: Timing::default(),
-                            };
-
-                            // Set movement data
-                            action_state.set_action_data(Action::Move, digital_action_data);
-                            println!("{:?}", action_state);
-                            // if controller_update.x_movement > 0.0 {
-                            //     action_state.press(&Action::Move);
-                            // }
+                            _ => {}
                         }
                     }
                 } else {
@@ -277,7 +275,7 @@ fn join_from_websocket(
                         team,
                         is_queen,
                         player_controller: PlayerController::WebSocket {
-                            controller_state: controller_update,
+                            id: controller_update.player,
                         },
                         delay: 0.0,
                         start_invincible: false,
