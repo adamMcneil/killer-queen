@@ -4,14 +4,10 @@ use leafwing_input_manager::action_state::ActionState;
 
 use serde::Deserialize;
 use serde::Serialize;
-use tungstenite::WebSocket;
-
-use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::player;
 use crate::{
     berries::{Berry, BerryBundle},
     gates::{GateBundle, GATE_HEIGHT, GATE_NEUTRAL_IDX},
@@ -30,14 +26,10 @@ pub struct JoinedGamepads(pub HashSet<Gamepad>);
 #[derive(Resource, Default)]
 pub struct JoinedWebSockets(pub HashSet<i32>);
 
-#[derive(Resource, Default)]
-pub struct WebSocketControllers(pub HashMap<i32, ControllerState>);
-
 impl Plugin for JoinPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<JoinedGamepads>()
             .insert_resource(JoinedWebSockets::default())
-            .insert_resource(WebSocketControllers::default())
             .add_systems(
                 Update,
                 (
@@ -178,21 +170,20 @@ pub struct BevyReceiver(pub Arc<Mutex<Receiver<ControllerState>>>);
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct ControllerState {
-    player: i32,
-    is_purple: bool,
-    is_leaving: bool,
-    x_movement: f32,
-    jump: bool,
+    pub player: i32,
+    pub is_purple: bool,
+    pub is_leaving: bool,
+    pub x_movement: f32,
+    pub jump: bool,
 }
 
 fn join_from_websocket(
     mut commands: Commands,
     mut joined_websockets: ResMut<JoinedWebSockets>,
-    mut web_socket_controllers: ResMut<WebSocketControllers>,
     receiver: Res<BevyReceiver>,
-    action_query: Query<(
+    mut action_query: Query<(
         Entity,
-        &ActionState<Action>,
+        &mut ActionState<Action>,
         &Player,
         Has<Berry>,
         &Transform,
@@ -210,20 +201,20 @@ fn join_from_websocket(
             while let Ok(controller_update) = receiver.try_recv() {
                 let player_id = controller_update.player.clone();
                 if joined_websockets.0.contains(&player_id) {
-                    if controller_update.is_leaving {
-                        for (
-                            player_entity,
-                            _,
-                            player,
-                            killed_has_berry,
-                            killed_player_transform,
-                            maybe_riding_on_ship,
-                            team,
-                            is_queen,
-                        ) in action_query.iter()
-                        {
+                    for (
+                        player_entity,
+                        mut action_state,
+                        player,
+                        killed_has_berry,
+                        killed_player_transform,
+                        maybe_riding_on_ship,
+                        team,
+                        is_queen,
+                    ) in action_query.iter_mut()
+                    {
+                        if controller_update.is_leaving {
                             match player.player_controller {
-                                WebSocket => {
+                                PlayerController::WebSocket { .. } => {
                                     remove_player(
                                         &mut commands,
                                         player_entity,
@@ -245,12 +236,12 @@ fn join_from_websocket(
                                 }
                                 _ => {}
                             }
+                            joined_websockets.0.remove(&player_id);
+                        } else {
+                            if controller_update.jump {
+                                action_state.press(&Action::Jump);
+                            }
                         }
-                        joined_websockets.0.remove(&player_id);
-                    } else {
-                        web_socket_controllers
-                            .0
-                            .insert(player_id, controller_update);
                     }
                 } else {
                     println!("player joining");
@@ -263,7 +254,9 @@ fn join_from_websocket(
                     ev_spawn_players.send(SpawnPlayerEvent {
                         team,
                         is_queen,
-                        player_controller: PlayerController::WebSocket(controller_update),
+                        player_controller: PlayerController::WebSocket {
+                            controller_state: controller_update,
+                        },
                         delay: 0.0,
                         start_invincible: false,
                     });

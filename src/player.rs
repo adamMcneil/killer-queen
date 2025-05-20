@@ -164,7 +164,7 @@ pub struct QueenDeaths {
 pub enum PlayerController {
     Gamepad(Gamepad),
     Midi { octave: u8 },
-    WebSocket(ControllerState),
+    WebSocket { controller_state: ControllerState },
 }
 
 #[derive(Component)]
