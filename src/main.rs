@@ -101,18 +101,27 @@ fn setup_controller_websocket() -> (JoinHandle<()>, Receiver<ControllerState>) {
         mpsc::channel();
 
     let web_socket_thread = thread::spawn(move || {
-        let server = TcpListener::bind("10.0.0.184:8000").unwrap();
-        println!("Server is listing");
+        let server = TcpListener::bind("0.0.0.0:8000").unwrap();
+        println!("WebSocket Server for Controller is Running");
         for stream in server.incoming() {
             let connection_transmitter = transmitter.clone();
             spawn(move || {
                 let mut websocket = accept(stream.unwrap()).unwrap();
-                println!("Connection successful");
                 loop {
                     let msg = websocket.read().unwrap();
-                    let rocket_message: ControllerState =
-                        serde_json::from_str(&msg.to_string()).unwrap();
-                    let _ = connection_transmitter.send(rocket_message);
+                    match serde_json::from_str::<ControllerState>(&msg.to_string()) {
+                        Ok(rocket_message) => {
+                            if let Err(e) = connection_transmitter.send(rocket_message) {
+                                eprintln!("Failed to send message to receiver: {}", e);
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to deserialize message: {}", e);
+                            // optionally continue or break, depending on severity
+                            break;
+                        }
+                    }
                 }
             });
         }

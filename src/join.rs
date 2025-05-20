@@ -256,7 +256,6 @@ fn join_from_websocket(
 
                                         action_state
                                             .set_action_data(Action::Move, digital_action_data);
-                                        // println!("{:?}", action_state);
                                     }
                                 }
                             }
@@ -264,7 +263,6 @@ fn join_from_websocket(
                         }
                     }
                 } else {
-                    println!("player joining");
                     let team = if controller_update.is_purple {
                         Team::Purple
                     } else {
